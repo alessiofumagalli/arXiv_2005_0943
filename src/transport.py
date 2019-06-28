@@ -36,7 +36,7 @@ class Transport(object):
         self.mortar_adv = self.adv_name + "_lambda"
 
         # post process variables
-        self.scalar = "scalar"
+        self.scalar = self.model + "_scalar"
         self.flux = "darcy_flux"
 
         # tolerance
@@ -55,7 +55,6 @@ class Transport(object):
             zeros = np.zeros(g.num_cells)
             empty = np.empty(0)
 
-            d["is_tangential"] = True
             d["Aavatsmark_transmissibilities"] = True
             d["tol"] = self.tol
 
@@ -84,7 +83,7 @@ class Transport(object):
 
             param["bc_values"] = bc_val
 
-            d[pp.PARAMETERS] = pp.Parameters(g, self.model, param)
+            d[pp.PARAMETERS].update(pp.Parameters(g, self.model, param))
 
         for e, d in self.gb.edges():
             g_l = self.gb.nodes_of_edge(e)[0]
@@ -97,35 +96,37 @@ class Transport(object):
             kn = data["lf_n"] * np.ones(mg.num_cells) / gamma
             param = {"normal_diffusivity": kn}
 
-            d[pp.PARAMETERS] = pp.Parameters(e, self.model, param)
+            d[pp.PARAMETERS].update(pp.Parameters(e, self.model, param))
 
         # set now the discretization
 
         # set the discretization for the grids
         for g, d in self.gb:
-            d[pp.PRIMARY_VARIABLES] = {self.variable: {"cells": 1}}
-            d[pp.DISCRETIZATION] = {self.variable: {self.diff_name: self.diff,
-                                                    self.adv_name: self.adv,
-                                                    self.mass_name: self.mass,
-                                                    self.source_name: self.source}}
+            d[pp.PRIMARY_VARIABLES].update({self.variable: {"cells": 1}})
+            d[pp.DISCRETIZATION].update({self.variable: {self.diff_name: self.diff,
+                                                         self.adv_name: self.adv,
+                                                         self.mass_name: self.mass,
+                                                         self.source_name: self.source}})
 
         # define the interface terms to couple the grids
         for e, d in self.gb.edges():
             g_slave, g_master = self.gb.nodes_of_edge(e)
-            d[pp.PRIMARY_VARIABLES] = {self.mortar_diff: {"cells": 1},
-                                       self.mortar_adv: {"cells": 1}}
-            d[pp.COUPLING_DISCRETIZATION] = {
+            d[pp.PRIMARY_VARIABLES].update({self.mortar_diff: {"cells": 1},
+                                            self.mortar_adv: {"cells": 1}})
+            d[pp.COUPLING_DISCRETIZATION].update({
                 self.coupling_diff_name: {
                     g_slave: (self.variable, self.diff_name),
                     g_master: (self.variable, self.diff_name),
                     e: (self.mortar_diff, self.coupling_diff),
-                },
+                }
+            })
+            d[pp.COUPLING_DISCRETIZATION].update({
                 self.coupling_adv_name: {
                     g_slave: (self.variable, self.adv_name),
                     g_master: (self.variable, self.adv_name),
                     e: (self.mortar_adv, self.coupling_adv),
                 }
-            }
+            })
 
     # ------------------------------------------------------------------------------#
 
@@ -142,10 +143,10 @@ class Transport(object):
 
         # empty the matrices
         for g, d in self.gb:
-            d[pp.DISCRETIZATION_MATRICES] = {self.model: {}}
+            d[pp.DISCRETIZATION_MATRICES].update({self.model: {}})
 
         for e, d in self.gb.edges():
-            d[pp.DISCRETIZATION_MATRICES] = {self.model: {}}
+            d[pp.DISCRETIZATION_MATRICES].update({self.model: {}})
 
         # solution of the darcy problem
         variables = [self.variable, self.mortar_diff, self.mortar_adv]

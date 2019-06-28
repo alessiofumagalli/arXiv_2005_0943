@@ -81,7 +81,7 @@ class Flow(object):
 
             param["bc_values"] = bc_val
 
-            d[pp.PARAMETERS] = pp.Parameters(g, self.model, param)
+            d[pp.PARAMETERS].update(pp.Parameters(g, self.model, param))
 
         for e, d in self.gb.edges():
             g_l = self.gb.nodes_of_edge(e)[0]
@@ -94,28 +94,28 @@ class Flow(object):
             kn = data["kf_n"] * np.ones(mg.num_cells) / gamma
             param = {"normal_diffusivity": kn}
 
-            d[pp.PARAMETERS] = pp.Parameters(e, self.model, param)
+            d[pp.PARAMETERS].update(pp.Parameters(e, self.model, param))
 
         # set now the discretization
 
         # set the discretization for the grids
         for g, d in self.gb:
-            d[pp.PRIMARY_VARIABLES] = {self.variable: {"cells": 1, "faces": 1}}
-            d[pp.DISCRETIZATION] = {self.variable: {self.discr_name: self.discr,
-                                                    self.mass_name: self.mass,
-                                                    self.source_name: self.source}}
+            d[pp.PRIMARY_VARIABLES].update({self.variable: {"cells": 1, "faces": 1}})
+            d[pp.DISCRETIZATION].update({self.variable: {self.discr_name: self.discr,
+                                                         self.mass_name: self.mass,
+                                                         self.source_name: self.source}})
 
         # define the interface terms to couple the grids
         for e, d in self.gb.edges():
             g_slave, g_master = self.gb.nodes_of_edge(e)
-            d[pp.PRIMARY_VARIABLES] = {self.mortar: {"cells": 1}}
-            d[pp.COUPLING_DISCRETIZATION] = {
+            d[pp.PRIMARY_VARIABLES].update({self.mortar: {"cells": 1}})
+            d[pp.COUPLING_DISCRETIZATION].update({
                 self.coupling_name: {
                     g_slave: (self.variable, self.discr_name),
                     g_master: (self.variable, self.discr_name),
                     e: (self.mortar, self.coupling),
                 }
-            }
+            })
 
     # ------------------------------------------------------------------------------#
 
@@ -123,10 +123,10 @@ class Flow(object):
 
         # empty the matrices
         for g, d in self.gb:
-            d[pp.DISCRETIZATION_MATRICES] = {self.model: {}}
+            d[pp.DISCRETIZATION_MATRICES].update({self.model: {}})
 
         for e, d in self.gb.edges():
-            d[pp.DISCRETIZATION_MATRICES] = {self.model: {}}
+            d[pp.DISCRETIZATION_MATRICES].update({self.model: {}})
 
         # solution of the darcy problem
         self.assembler = pp.Assembler(self.gb, active_variables=[self.variable, self.mortar])
