@@ -4,7 +4,9 @@ import porepy as pp
 
 import sys; sys.path.insert(0, "../../src/")
 from flow import Flow
-from transport import Transport
+
+from concentration import Concentration
+from reaction import Reaction
 
 # ------------------------------------------------------------------------------#
 
@@ -30,7 +32,7 @@ def bc_flag_flow(g, data, tol):
 
 # ------------------------------------------------------------------------------#
 
-def bc_flag_scalar(g, data, tol):
+def bc_flag_solute(g, data, tol):
     b_faces = g.tags["domain_boundary_faces"].nonzero()[0]
     b_face_centers = g.face_centers[:, b_faces]
 
@@ -68,7 +70,7 @@ def create_gb(file_name, mesh_size):
 def main():
     tol = 1e-6
 
-    mesh_size = 2e-2
+    mesh_size = np.power(2., -2)
 
     end_time = 1
     num_steps = 20
@@ -82,8 +84,8 @@ def main():
         "mass_weight": 1.0,
     }
 
-    # the scalar problem
-    param_scalar = {
+    # the solute problem
+    param_solute = {
         "tol": tol,
         "l": 1,
         "aperture": 1e-2, "lf_t": 1e2, "lf_n": 1e2,
@@ -91,12 +93,14 @@ def main():
     }
 
     gb = create_gb("network.csv", mesh_size)
+    gb.set_porepy_keywords()
 
     # -- darcy -- #
 
-    # declare the flow
+    # declare the modles
     model_flow = "flow"
-    model_scalar = "scalar"
+    model_solute = "solute"
+    model_precipitate = "precipitate"
 
     discr_flow = Flow(gb, model_flow, tol)
 
@@ -115,27 +119,29 @@ def main():
 
     # -- transport -- #
 
-    # declare the scalar
-    discr_scalar = Transport(gb, model_scalar, tol)
+    # declare the solute and precipitate
+    discr_conc = Concentration(gb, [model_solute, model_precipitate], tol)
 
     # set the data
-    discr_scalar.set_data(param_scalar, bc_flag_scalar)
-    discr_scalar.set_flux(discr_flow.flux, discr_flow.mortar)
+    param_conc = {model_solute: param_solute, model_precipitate: param_solute}
+    bc_flag_conc = {model_solute: bc_flag_solute, model_precipitate: bc_flag_solute}
+    discr_conc.set_data(param_conc, bc_flag_conc)
 
-    # compute the matrices and rhs
-    A_scalar, M_scalar, b_scalar = discr_scalar.matrix_rhs()
+    # set the flux from the flow equation
+    discr_conc.set_flux(discr_flow.flux, discr_flow.mortar)
 
     # time loop
-    x_scalar = np.zeros(b_scalar.size)
+    x_conc = np.zeros(discr_conc.shape())
     for i in np.arange(num_steps):
-        rhs = M_scalar * x_scalar + b_scalar
-        x_scalar = sps.linalg.spsolve(M_scalar + A_scalar, rhs)
+
+        # do one step
+        x_conc = discr_conc.one_step(x_conc, i)
 
         # post process
-        discr_scalar.extract(x_scalar)
-        discr_scalar.export(i)
+        discr_conc.extract(x_conc)
+        discr_conc.export(i)
 
-    discr_scalar.export_pvd(np.arange(num_steps))
+    discr_conc.export_pvd(np.arange(num_steps))
 
 # ------------------------------------------------------------------------------#
 
