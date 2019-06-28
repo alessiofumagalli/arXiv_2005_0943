@@ -1,20 +1,11 @@
 import numpy as np
-import sys; sys.path.insert(0, "../../src/")
-
 import porepy as pp
 
+import sys; sys.path.insert(0, "../../src/")
 from reaction import Reaction
 
-
-# temperature dependent ?????????
-def lmbda(theta):
-    return 8.37e-6*np.exp(-6e4/8.314/theta);
-
-# reaction function, parameter: solute (u), precipitate (w), temperature (theta)
-def reaction_fct(u, w, theta):
-    r = np.power(u, 2)
-    #rint(w) <- nel caso di Anna qui ho un 1e-17 mentre io ho 0 e quindi vengo punito
-    return lmbda(theta) * ((w>1e-15)*np.maximum(1 - r, 0) - np.maximum(r - 1, 0))
+sys.path.insert(0, "../common/")
+from common import reaction_fct
 
 def set_data():
     data = {}
