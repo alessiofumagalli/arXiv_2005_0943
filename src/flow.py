@@ -37,9 +37,6 @@ class Flow(object):
         # tolerance
         self.tol = tol
 
-        # exporter
-        self.save = pp.Exporter(self.gb, self.model, folder="solution")
-
     def set_data(self, data, bc_flag):
         self.data = data
 
@@ -163,15 +160,5 @@ class Flow(object):
 
         # export the P0 flux reconstruction
         pp.project_flux(self.gb, self.discr, self.flux, self.P0_flux, self.mortar)
-
-    # ------------------------------------------------------------------------------#
-
-    def export(self, time_step=None):
-        self.save.write_vtk([self.pressure, self.P0_flux], time_step=time_step)
-
-    # ------------------------------------------------------------------------------#
-
-    def export_pvd(self, steps):
-        self.save.write_pvd(steps)
 
     # ------------------------------------------------------------------------------#
