@@ -12,23 +12,23 @@ class Transport(object):
 
         # discretization operator name
         self.diff_name = self.model + "_diff"
-        self.diff = pp.Tpfa(self.model)
+        self.diff = pp.Tpfa(self.diff_name)
 
         self.adv_name = self.model + "_adv"
-        self.adv = pp.Upwind(self.model)
+        self.adv = pp.Upwind(self.adv_name)
 
         self.mass_name = self.model + "_mass"
-        self.mass = pp.MassMatrix(self.model)
+        self.mass = pp.MassMatrix(self.mass_name)
 
         # coupling operator
         self.coupling_diff_name = self.diff_name + "_coupling"
-        self.coupling_diff = pp.RobinCoupling(self.model, self.diff)
+        self.coupling_diff = pp.RobinCoupling(self.diff_name, self.diff)
 
         self.coupling_adv_name = self.adv_name + "_coupling"
-        self.coupling_adv = pp.UpwindCoupling(self.model)
+        self.coupling_adv = pp.UpwindCoupling(self.adv_name)
 
         self.source_name = self.model + "_source"
-        self.source = pp.ScalarSource(self.model)
+        self.source = pp.ScalarSource(self.source_name)
 
         # master variable name
         self.variable = self.model + "_variable"
@@ -42,14 +42,14 @@ class Transport(object):
         # tolerance
         self.tol = tol
 
-        # exporter
-        self.save = pp.Exporter(self.gb, self.model, folder="solution")
-
     def set_data(self, data, bc_flag):
         self.data = data
 
         for g, d in self.gb:
-            param = {}
+            param_diff = {}
+            param_adv = {}
+            param_mass = {}
+            param_source = {}
 
             unity = np.ones(g.num_cells)
             zeros = np.zeros(g.num_cells)
@@ -66,24 +66,33 @@ class Transport(object):
                 kxx = data["l"] * unity
                 aperture = unity
 
-            param["second_order_tensor"] = pp.SecondOrderTensor(3, kxx=kxx)
-            param["aperture"] = aperture
-            param["mass_weight"] = data["mass_weight"] * unity
+            param_diff["second_order_tensor"] = pp.SecondOrderTensor(3, kxx=kxx)
 
-            param["source"] = g.cell_volumes * 0
+            param_diff["aperture"] = aperture
+            param_adv["aperture"] = aperture
+            param_mass["aperture"] = aperture
+
+            param_mass["mass_weight"] = data["mass_weight"] * unity
+
+            param_source["source"] = g.cell_volumes * 0
 
             # Boundaries
             b_faces = g.tags["domain_boundary_faces"].nonzero()[0]
             if b_faces.size:
-                labels, bc_val = bc_flag(g, data, self.tol)
-                param["bc"] = pp.BoundaryCondition(g, b_faces, labels)
+                labels_diff, labels_adv, bc_val = bc_flag(g, data, self.tol)
+                param_diff["bc"] = pp.BoundaryCondition(g, b_faces, labels_diff)
+                param_adv["bc"] = pp.BoundaryCondition(g, b_faces, labels_adv)
             else:
                 bc_val = np.zeros(g.num_faces)
-                param["bc"] = pp.BoundaryCondition(g, empty, empty)
+                param_diff["bc"] = pp.BoundaryCondition(g, empty, empty)
+                param_adv["bc"] = pp.BoundaryCondition(g, empty, empty)
 
-            param["bc_values"] = bc_val
+            param_diff["bc_values"] = bc_val
+            param_adv["bc_values"] = bc_val
 
-            d[pp.PARAMETERS].update(pp.Parameters(g, self.model, param))
+            d[pp.PARAMETERS].update(pp.Parameters(g,
+                [self.diff_name, self.adv_name, self.mass_name, self.source_name],
+                [param_diff, param_adv, param_mass, param_source]))
 
         for e, d in self.gb.edges():
             g_l = self.gb.nodes_of_edge(e)[0]
@@ -91,12 +100,13 @@ class Transport(object):
             mg = d["mortar_grid"]
             check_P = mg.slave_to_mortar_avg()
 
-            aperture = self.gb.node_props(g_l, pp.PARAMETERS)[self.model]["aperture"]
+            aperture = self.gb.node_props(g_l, pp.PARAMETERS)[self.diff_name]["aperture"]
             gamma = check_P * aperture
             kn = data["lf_n"] * np.ones(mg.num_cells) / gamma
-            param = {"normal_diffusivity": kn}
+            param_diff = {"normal_diffusivity": kn}
 
-            d[pp.PARAMETERS].update(pp.Parameters(e, self.model, param))
+            d[pp.PARAMETERS].update(pp.Parameters(
+                e, [self.diff_name, self.adv_name], [param_diff, {}]))
 
         # set now the discretization
 
@@ -130,12 +140,17 @@ class Transport(object):
 
     # ------------------------------------------------------------------------------#
 
+    def shape(self):
+        return self.gb.num_cells() + 2*self.gb.num_mortar_cells()
+
+    # ------------------------------------------------------------------------------#
+
     def set_flux(self, flux_name, mortar_name):
         for _, d in self.gb:
-            d[pp.PARAMETERS][self.model][self.flux] = d[pp.STATE][flux_name]
+            d[pp.PARAMETERS][self.adv_name][self.flux] = d[pp.STATE][flux_name]
 
         for _, d in self.gb.edges():
-            d[pp.PARAMETERS][self.model][self.flux] = d[pp.STATE][mortar_name]
+            d[pp.PARAMETERS][self.adv_name][self.flux] = d[pp.STATE][mortar_name]
 
     # ------------------------------------------------------------------------------#
 
@@ -143,10 +158,12 @@ class Transport(object):
 
         # empty the matrices
         for g, d in self.gb:
-            d[pp.DISCRETIZATION_MATRICES].update({self.model: {}})
+            d[pp.DISCRETIZATION_MATRICES].update({self.diff_name: {}, self.adv_name: {},
+                                                  self.mass_name: {}, self.source_name: {}})
 
         for e, d in self.gb.edges():
-            d[pp.DISCRETIZATION_MATRICES].update({self.model: {}})
+            d[pp.DISCRETIZATION_MATRICES].update({self.diff_name: {}, self.adv_name: {},
+                                                  self.mass_name: {}, self.source_name: {}})
 
         # solution of the darcy problem
         variables = [self.variable, self.mortar_diff, self.mortar_adv]
@@ -176,26 +193,18 @@ class Transport(object):
                 block_b[adv_name] + block_b[coupling_adv_name] +\
                 block_b[source_name]
         else:
-            A = block_A[discr_name] + block_A[adv_name]
-            b = block_b[discr_name] + block_b[adv_name] + block_b[source_name]
+            A = block_A[diff_name] + block_A[adv_name]
+            b = block_b[diff_name] + block_b[adv_name] + block_b[source_name]
 
         return A, M, b
 
     # ------------------------------------------------------------------------------#
 
-    def extract(self, x):
+    def extract(self, x, name=None):
         self.assembler.distribute_variable(x)
+        if name is None:
+            name = self.scalar
         for _, d in self.gb:
-            d[pp.STATE][self.scalar] = d[pp.STATE][self.variable]
-
-    # ------------------------------------------------------------------------------#
-
-    def export(self, time_step=None):
-        self.save.write_vtk([self.scalar], time_step=time_step)
-
-    # ------------------------------------------------------------------------------#
-
-    def export_pvd(self, steps):
-        self.save.write_pvd(steps)
+            d[pp.STATE][name] = d[pp.STATE][self.variable]
 
     # ------------------------------------------------------------------------------#
