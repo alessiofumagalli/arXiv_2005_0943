@@ -37,6 +37,7 @@ class Flow(object):
         # tolerance
         self.tol = tol
 
+
     def set_data(self, data, bc_flag):
         self.data = data
 
@@ -65,7 +66,7 @@ class Flow(object):
             param["aperture"] = aperture
             param["mass_weight"] = data["mass_weight"] * unity
 
-            param["source"] = g.cell_volumes * 0
+            param["source"] = g.cell_volumes * data.get("source", 0)
 
             # Boundaries
             b_faces = g.tags["domain_boundary_faces"].nonzero()[0]
@@ -117,6 +118,38 @@ class Flow(object):
         # assembler
         variables = [self.variable, self.mortar]
         self.assembler = pp.Assembler(self.gb, active_variables=variables)
+
+    # ------------------------------------------------------------------------------#
+
+    def update_data(self, data):
+        self.data.update(data)
+
+        for g, d in self.gb:
+            param = {}
+            unity = np.ones(g.num_cells)
+
+            # assign permeability
+            if g.dim < self.gb.dim_max():
+                kxx = data["kf_t"] * unity
+                perm = pp.SecondOrderTensor(1, kxx=kxx, kyy=1, kzz=1)
+                aperture = data["aperture"] * unity
+
+            else:
+                kxx = data["k"] * unity
+                perm = pp.SecondOrderTensor(g.dim, kxx=kxx, kyy=kxx, kzz=1)
+                aperture = unity
+
+            param["aperture"] = aperture
+            param["second_order_tensor"] = perm
+            param["source"] = g.cell_volumes * data["source"]
+            d[pp.PARAMETERS][self.model].update(param)
+
+        # MANCA LA PARTE DI AGGIORNAMENTO DEGLI EDGES
+
+    # ------------------------------------------------------------------------------#
+
+    def shape(self):
+        return self.gb.num_cells() + self.gb.num_faces() + self.gb.num_mortar_cells()
 
     # ------------------------------------------------------------------------------#
 
