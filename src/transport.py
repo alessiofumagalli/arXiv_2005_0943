@@ -42,6 +42,7 @@ class Transport(object):
         # tolerance
         self.tol = tol
 
+
     def set_data(self, data, bc_flag):
         self.data = data
 
@@ -138,6 +139,10 @@ class Transport(object):
                 }
             })
 
+        # assembler
+        variables = [self.variable, self.mortar_diff, self.mortar_adv]
+        self.assembler = pp.Assembler(self.gb, active_variables=variables)
+
     # ------------------------------------------------------------------------------#
 
     def shape(self):
@@ -164,10 +169,6 @@ class Transport(object):
         for e, d in self.gb.edges():
             d[pp.DISCRETIZATION_MATRICES].update({self.diff_name: {}, self.adv_name: {},
                                                   self.mass_name: {}, self.source_name: {}})
-
-        # solution of the darcy problem
-        variables = [self.variable, self.mortar_diff, self.mortar_adv]
-        self.assembler = pp.Assembler(self.gb, active_variables=variables)
 
         block_A, block_b = self.assembler.assemble_matrix_rhs(add_matrices=False)
 

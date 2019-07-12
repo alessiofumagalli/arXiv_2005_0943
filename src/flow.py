@@ -114,6 +114,10 @@ class Flow(object):
                 }
             })
 
+        # assembler
+        variables = [self.variable, self.mortar]
+        self.assembler = pp.Assembler(self.gb, active_variables=variables)
+
     # ------------------------------------------------------------------------------#
 
     def matrix_rhs(self):
@@ -124,9 +128,6 @@ class Flow(object):
 
         for e, d in self.gb.edges():
             d[pp.DISCRETIZATION_MATRICES].update({self.model: {}})
-
-        # solution of the darcy problem
-        self.assembler = pp.Assembler(self.gb, active_variables=[self.variable, self.mortar])
 
         block_A, block_b = self.assembler.assemble_matrix_rhs(add_matrices=False)
 
