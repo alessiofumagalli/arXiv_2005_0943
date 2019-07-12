@@ -12,7 +12,7 @@ from reaction import Reaction
 
 # reaction function, parameter: solute (u), precipitate (w), temperature (theta)
 def reaction_fct(u, w, theta, tol=1e-15):
-    r = np.power(u, 2)
+    r = np.power(u, 1)
     return (w>tol)*np.maximum(1 - r, 0) - np.maximum(r - 1, 0)
 
 # ------------------------------------------------------------------------------#
@@ -69,11 +69,14 @@ def create_gb(file_name, mesh_size):
     domain = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1}
     network = pp.fracture_importer.network_2d_from_csv(file_name, domain=domain)
 
+    constraints = {"points": np.array([[0.4, 0.4, 0.6, 0.6],
+                                       [0.4, 0.6, 0.6, 0.4]]),
+                   "edges": np.array([[0, 1], [1, 2], [2, 3], [3, 0]]).T}
     # create the mesh
     mesh_kwargs = {"mesh_size_frac": mesh_size, "mesh_size_min": mesh_size / 20}
 
     # assign the flag for the low permeable fractures
-    return network.mesh(mesh_kwargs)
+    return network.mesh(mesh_kwargs, constraints=constraints)
 
 # ------------------------------------------------------------------------------#
 
@@ -126,21 +129,15 @@ def main():
     save = pp.Exporter(gb, "case2", folder="solution")
     save_vars = ["pressure", "P0_darcy_flux", "solute", "precipitate"]
 
+    # -- flow part -- #
+
+    # declare the flow
     discr_flow = Flow(gb, model_flow, tol)
 
     # set the data
     discr_flow.set_data(param_flow, bc_flag_flow)
 
-    # compute the matrices and rhs
-    A_flow, M_flow, b_flow = discr_flow.matrix_rhs()
-
-    # solve the linear system
-    x_flow = sps.linalg.spsolve(A_flow, b_flow)
-
-    # post processing
-    discr_flow.extract(x_flow)
-
-    # -- transport -- #
+    # -- transport part -- #
 
     # declare the solute and precipitate
     discr_solute = Transport(gb, model_solute, tol)
@@ -150,19 +147,17 @@ def main():
     discr_solute.set_data(param_solute, bc_flag_solute)
     discr_react.set_data(param_react)
 
-    # set the flux from the flow equation
-    discr_solute.set_flux(discr_flow.flux, discr_flow.mortar)
-
     # time loop
     x_conc = np.ones((2, discr_solute.shape()))
 
     for g, _ in gb:
         if g.dim == 2:
-            x_conc[1, :] = 0.8*(np.logical_and(np.abs(g.cell_centers[0, :] - 0.5) < 0.1,
-                                               np.abs(g.cell_centers[1, :] - 0.5) < 0.1))
+            x_conc[1, :g.num_cells] = 0.8*(np.logical_and(np.abs(g.cell_centers[0, :] - 0.5) < 0.1,
+                                                          np.abs(g.cell_centers[1, :] - 0.5) < 0.1))
+    x_conc_old = x_conc.copy()
 
     # post process
-    discr_solute.matrix_rhs() ##################################################
+    discr_flow.extract(np.zeros(discr_flow.shape()))
     discr_solute.extract(x_conc[0, :], "solute")
     discr_solute.extract(x_conc[1, :], "precipitate")
 
@@ -170,18 +165,44 @@ def main():
 
     for i in np.arange(num_steps):
 
+        print("processing", i, "step")
+
+        # -- do the flow part -- #
+
+        # udpate the flow parameters that depends on the precipitate
+        param_flow = {
+            "k": np.power(1 - x_conc[1, :], 2),
+            "source": (x_conc[1, :] - x_conc_old[1, :])/time_step,
+            "aperture": 1e-2, "kf_t": 1e2, "kf_n": 1e2,
+        }
+        discr_flow.update_data(param_flow)
+
+        # compute the matrices and rhs # FORSE NON SERVE LA M
+        A_flow, M_flow, b_flow = discr_flow.matrix_rhs()
+
+        # solve the linear system
+        x_flow = sps.linalg.spsolve(A_flow, b_flow)
+
+        # set the flux from the flow equation
+        discr_solute.set_flux(discr_flow.flux, discr_flow.mortar)
+
+        # -- do the transport part -- #
+
         # compute the matrices and rhs
-        A, M, b = discr_solute.matrix_rhs()
+        A_conc, M_conc, b_conc = discr_solute.matrix_rhs()
 
         # solve the advective and diffusive step
-        x_conc[0, :] = sps.linalg.spsolve(M + A, M * x_conc[0, :] + b)
+        x_conc_old = x_conc.copy()
+        x_conc[0, :] = sps.linalg.spsolve(M_conc + A_conc, M_conc * x_conc[0, :] + b_conc)
 
         # do one step
         x_conc = discr_react.step(x_conc, time_step)
 
         # post process
+        discr_flow.extract(x_flow)
         discr_solute.extract(x_conc[0, :], "solute")
         discr_solute.extract(x_conc[1, :], "precipitate")
+
         save.write_vtk(save_vars, time_step=time_step*(i+1))
 
     save.write_pvd(np.arange(num_steps+1)*time_step)
