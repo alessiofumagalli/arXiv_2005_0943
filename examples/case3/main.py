@@ -7,6 +7,7 @@ import sys; sys.path.insert(0, "../../src/")
 from flow import Flow
 from transport import Transport
 from reaction import Reaction
+from porosity import Porosity
 
 # ------------------------------------------------------------------------------#
 
@@ -31,7 +32,8 @@ def bc_flag_flow(g, data, tol):
     labels = np.array(["neu"] * b_faces.size)
     bc_val = np.zeros(g.num_faces)
 
-    labels[in_flow + out_flow] = "dir"
+    labels[in_flow] = "dir"
+    labels[out_flow] = "dir"
     bc_val[b_faces[in_flow]] = 0.5
     bc_val[b_faces[out_flow]] = 0
 
@@ -54,7 +56,8 @@ def bc_flag_solute(g, data, tol):
     labels_adv = np.array(["neu"] * b_faces.size)
 
     labels_diff[in_flow] = "dir"
-    labels_adv[in_flow + out_flow] = "dir"
+    labels_adv[in_flow] = "dir"
+    labels_adv[out_flow] = "dir"
 
     bc_val = np.zeros(g.num_faces)
     bc_val[b_faces[in_flow]] = 0
@@ -80,87 +83,105 @@ def create_gb(file_name, mesh_size):
 
 # ------------------------------------------------------------------------------#
 
+def set_initial_condition(gb, discr_react):
+    dof = np.cumsum(np.append(0, np.asarray(discr_react.assembler.full_dof)))
+
+    values = np.zeros(dof[-1])
+    for pair, bi in discr_react.assembler.block_dof.items():
+        g = pair[0]
+        if isinstance(g, pp.Grid):
+            data = gb.node_props(g)
+            values[dof[bi] : dof[bi + 1]] = 0.8*(np.logical_and(\
+                                                np.abs(g.cell_centers[0, :] - 0.5) < 0.1,
+                                                np.abs(g.cell_centers[1, :] - 0.5) < 0.1))
+    return values
+
+# ------------------------------------------------------------------------------#
+
 def main():
     tol = 1e-6
-    tol_react = 1e-12
 
-    mesh_size = np.power(2., -6)
+    mesh_size = np.power(2., -3)
 
     end_time = 1
-    num_steps = 100
+    num_steps = end_time * 100
     time_step = end_time / float(num_steps)
 
-    # the flow problem
-    param_flow = {
+    gb = create_gb("network.csv", mesh_size)
+    gb.set_porepy_keywords()
+
+    # data problem
+    param = {
         "tol": tol,
+        "time_step": time_step,
+
+        "aperture": 1e-2,
+
+        # flow
         "k": 1,
-        "aperture": 1e-2, "kf_t": 1e2, "kf_n": 1e2,
-        "mass_weight": 1.0,
-    }
+        "kf_t": 1e4, "kf_n": 1e4,
 
-    # the solute problem
-    param_solute = {
-        "tol": tol,
-        "l": 1,
-        "aperture": 1e-2, "lf_t": 1e2, "lf_n": 1e2,
-        "mass_weight": 1.0/time_step,  # inverse of the time step
-    }
+        # transport of solute
+        "l": 1e-6,
+        "lf_t": 1e-6, "lf_n": 1e-6*1e2,
+        "mass_weight": 1.0/time_step,
 
-    # the reaction part
-    param_react = {
+        # reaction of solute and precipitate
         "length": 1,
         "velocity": 1,
         "gamma_eq": 1,
         "theta": 0,
         "reaction": reaction_fct,
-    }
+        "tol_reaction": 1e-12,
+        "max_iter": 1e2,
 
-    gb = create_gb("network.csv", mesh_size)
-    gb.set_porepy_keywords()
+        # porosity
+        "eta": 1,
+    }
 
     # -- darcy -- #
 
-    # declare the modles
-    model_flow = "flow"
-    model_solute = "solute"
-    model_reaction = "reaction"
-
     # exporter
-    save = pp.Exporter(gb, "case2", folder="solution")
-    save_vars = ["pressure", "P0_darcy_flux", "solute", "precipitate"]
+    save = pp.Exporter(gb, "case3", folder="solution")
+    save_vars = ["pressure", "P0_darcy_flux", "solute", "precipitate", "porosity"]
 
     # -- flow part -- #
-
-    # declare the flow
-    discr_flow = Flow(gb, model_flow, tol)
-
-    # set the data
-    discr_flow.set_data(param_flow, bc_flag_flow)
+    discr_flow = Flow(gb)
+    discr_flow.set_data(param, bc_flag_flow)
 
     # -- transport part -- #
+    discr_solute = Transport(gb)
+    discr_solute.set_data(param, bc_flag_solute)
 
-    # declare the solute and precipitate
-    discr_solute = Transport(gb, model_solute, tol)
-    discr_react = Reaction(tol_react)
+    discr_react = Reaction()
+    discr_react.set_data(param)
 
-    # set the data
-    discr_solute.set_data(param_solute, bc_flag_solute)
-    discr_react.set_data(param_react)
+    # -- porosity part -- #
+    discr_poro = Porosity()
+    discr_poro.set_data(param)
 
     # time loop
-    x_conc = np.ones((2, discr_solute.shape()))
+    x_flow = np.zeros(discr_flow.shape())
+    x_conc = np.zeros((2, discr_solute.shape()))
+    x_poro = np.zeros(discr_solute.shape())
 
-    for g, _ in gb:
-        if g.dim == 2:
-            x_conc[1, :g.num_cells] = 0.8*(np.logical_and(np.abs(g.cell_centers[0, :] - 0.5) < 0.1,
-                                                          np.abs(g.cell_centers[1, :] - 0.5) < 0.1))
+    x_conc[1, :] = set_initial_condition(gb, discr_solute)
+    x_poro = 1 - x_conc[1, :] ##############
+
+    # save the old solution
     x_conc_old = x_conc.copy()
+    x_poro_old = x_poro.copy()
+    x_poro_star = discr_poro.extrapolate(x_poro, x_poro_old)
 
-    # post process
-    discr_flow.extract(np.zeros(discr_flow.shape()))
     discr_solute.extract(x_conc[0, :], "solute")
     discr_solute.extract(x_conc[1, :], "precipitate")
 
+    discr_solute.extract(x_poro, "porosity")
+    discr_solute.extract(x_poro_old, "porosity_old")
+    discr_solute.extract(x_poro_star, "porosity_star")
+
+    # post process
+    discr_flow.extract(np.zeros(discr_flow.shape()))
     save.write_vtk(save_vars, time_step=0)
 
     for i in np.arange(num_steps):
@@ -170,38 +191,50 @@ def main():
         # -- do the flow part -- #
 
         # udpate the flow parameters that depends on the precipitate
-        param_flow = {
-            "k": np.power(1 - x_conc[1, :], 2),
-            "source": (x_conc[1, :] - x_conc_old[1, :])/time_step,
-            "aperture": 1e-2, "kf_t": 1e2, "kf_n": 1e2,
-        }
-        discr_flow.update_data(param_flow)
+        discr_flow.update_data()
 
-        # compute the matrices and rhs # FORSE NON SERVE LA M
-        A_flow, M_flow, b_flow = discr_flow.matrix_rhs()
+        # compute the matrices and rhs
+        A_flow, b_flow = discr_flow.matrix_rhs()
 
         # solve the linear system
         x_flow = sps.linalg.spsolve(A_flow, b_flow)
 
+        # -- do the transport part -- #
+
         # set the flux from the flow equation
         discr_solute.set_flux(discr_flow.flux, discr_flow.mortar)
 
-        # -- do the transport part -- #
+        # update the data
+        discr_solute.update_data()
 
         # compute the matrices and rhs
         A_conc, M_conc, b_conc = discr_solute.matrix_rhs()
 
         # solve the advective and diffusive step
         x_conc_old = x_conc.copy()
-        x_conc[0, :] = sps.linalg.spsolve(M_conc + A_conc, M_conc * x_conc[0, :] + b_conc)
+        # da controllare i termini modificati
+        lhs_conc = M_conc * sps.diags(x_poro_star, 0) + A_conc
+        rhs_conc = M_conc * sps.diags(x_poro_old, 0) *  x_conc[0, :] + b_conc
+        x_conc[0, :] = sps.linalg.spsolve(lhs_conc, rhs_conc)
 
         # do one step
-        x_conc = discr_react.step(x_conc, time_step)
+        x_conc = discr_react.step(x_conc)
+
+        # -- do the porosity part -- #
+
+        x_poro_old = x_poro.copy()
+        x_poro = discr_poro.step(x_poro, x_conc[1, :], x_conc_old[1, :])
+        x_poro_star = discr_poro.extrapolate(x_poro, x_poro_old)
 
         # post process
         discr_flow.extract(x_flow)
+
         discr_solute.extract(x_conc[0, :], "solute")
         discr_solute.extract(x_conc[1, :], "precipitate")
+
+        discr_solute.extract(x_poro, "porosity")
+        discr_solute.extract(x_poro_old, "porosity_old")
+        discr_solute.extract(x_poro_star, "porosity_star")
 
         save.write_vtk(save_vars, time_step=time_step*(i+1))
 
