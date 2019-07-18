@@ -162,27 +162,7 @@ class Flow(object):
         for e, d in self.gb.edges():
             d[pp.DISCRETIZATION_MATRICES].update({self.model: {}})
 
-        block_A, block_b = self.assembler.assemble_matrix_rhs(add_matrices=False)
-
-        # unpack the matrices just computed
-        coupling_name = self.coupling_name + (
-            "_" + self.mortar + "_" + self.variable + "_" + self.variable
-        )
-        discr_name = self.discr_name + "_" + self.variable
-        mass_name = self.mass_name + "_" + self.variable
-        source_name = self.source_name + "_" + self.variable
-
-        # need a sign for the convention of the conservation equation
-        M = - block_A[mass_name]
-
-        if self.gb.size() > 1:
-            A = block_A[discr_name] + block_A[coupling_name]
-            b = block_b[discr_name] + block_b[coupling_name] + block_b[source_name]
-        else:
-            A = block_A[discr_name]
-            b = block_b[discr_name] + block_b[source_name]
-
-        return A, M, b
+        return self.assembler.assemble_matrix_rhs()
 
     # ------------------------------------------------------------------------------#
 
