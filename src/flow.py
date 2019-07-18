@@ -3,7 +3,9 @@ import porepy as pp
 
 class Flow(object):
 
-    def __init__(self, gb, model, tol):
+    # ------------------------------------------------------------------------------#
+
+    def __init__(self, gb, model="flow"):
 
         self.model = model
         self.gb = gb
@@ -13,9 +15,6 @@ class Flow(object):
         # discretization operator name
         self.discr_name = self.model + "_flux"
         self.discr = pp.RT0(self.model)
-
-        self.mass_name = self.model + "_mass"
-        self.mass = pp.MixedMassMatrix(self.model)
 
         # coupling operator
         self.coupling_name = self.discr_name + "_coupling"
@@ -34,9 +33,7 @@ class Flow(object):
         self.flux = "darcy_flux"  # it has to be this one
         self.P0_flux = "P0_darcy_flux"
 
-        # tolerance
-        self.tol = tol
-
+    # ------------------------------------------------------------------------------#
 
     def set_data(self, data, bc_flag):
         self.data = data
@@ -49,7 +46,7 @@ class Flow(object):
             empty = np.empty(0)
 
             d["is_tangential"] = True
-            d["tol"] = self.tol
+            d["tol"] = data["tol"]
 
             # assign permeability
             if g.dim < self.gb.dim_max():
@@ -64,14 +61,13 @@ class Flow(object):
 
             param["second_order_tensor"] = perm
             param["aperture"] = aperture
-            param["mass_weight"] = data["mass_weight"] * unity
 
             param["source"] = g.cell_volumes * data.get("source", 0)
 
             # Boundaries
             b_faces = g.tags["domain_boundary_faces"].nonzero()[0]
             if b_faces.size:
-                labels, bc_val = bc_flag(g, data, self.tol)
+                labels, bc_val = bc_flag(g, data, data["tol"])
                 param["bc"] = pp.BoundaryCondition(g, b_faces, labels)
             else:
                 bc_val = np.zeros(g.num_faces)
@@ -100,7 +96,6 @@ class Flow(object):
         for g, d in self.gb:
             d[pp.PRIMARY_VARIABLES].update({self.variable: {"cells": 1, "faces": 1}})
             d[pp.DISCRETIZATION].update({self.variable: {self.discr_name: self.discr,
-                                                         self.mass_name: self.mass,
                                                          self.source_name: self.source}})
 
         # define the interface terms to couple the grids
@@ -121,30 +116,45 @@ class Flow(object):
 
     # ------------------------------------------------------------------------------#
 
-    def update_data(self, data):
-        self.data.update(data)
+    def update_data(self):
+        # NOTE the self.data stores the original values
 
         for g, d in self.gb:
             param = {}
             unity = np.ones(g.num_cells)
 
+            poro = d[pp.STATE]["porosity"]
+            poro_old = d[pp.STATE]["porosity_old"]
+
             # assign permeability
             if g.dim < self.gb.dim_max():
-                kxx = data["kf_t"] * unity
+                kxx = np.power(poro, 2) * self.data["kf_t"]
                 perm = pp.SecondOrderTensor(1, kxx=kxx, kyy=1, kzz=1)
-                aperture = data["aperture"] * unity
-
+                aperture = self.data["aperture"] * unity ## to do the aperture
             else:
-                kxx = data["k"] * unity
+                kxx = np.power(poro, 2) * self.data["k"]
                 perm = pp.SecondOrderTensor(g.dim, kxx=kxx, kyy=kxx, kzz=1)
                 aperture = unity
 
-            param["aperture"] = aperture
+            #param["aperture"] = aperture
             param["second_order_tensor"] = perm
-            param["source"] = g.cell_volumes * data["source"]
+
+            source = (poro - poro_old)/self.data["time_step"]
+            param["source"] = g.cell_volumes * aperture * source ## non sirucor della apertura qui
+
             d[pp.PARAMETERS][self.model].update(param)
 
-        # MANCA LA PARTE DI AGGIORNAMENTO DEGLI EDGES
+        for e, d in self.gb.edges():
+            g_l = self.gb.nodes_of_edge(e)[0]
+
+            mg = d["mortar_grid"]
+            check_P = mg.slave_to_mortar_avg()
+
+            aperture = self.gb.node_props(g_l, pp.PARAMETERS)[self.model]["aperture"]
+            poro = self.gb.node_props(g_l, pp.STATE)["porosity"]
+
+            kn = check_P * (np.power(poro, 2) * self.data["kf_n"] / aperture)
+            d[pp.PARAMETERS][self.model].update({"normal_diffusivity": kn})
 
     # ------------------------------------------------------------------------------#
 
