@@ -11,9 +11,10 @@ class Reaction(object):
 
     # ------------------------------------------------------------------------------#
 
-    def set_data(self, data):
+    def set_data(self, data, data_time):
 
         self.data = data
+        self.data = data_time
 
         # bisection parameters
         self.tol = data["tol_reaction"]
@@ -22,19 +23,21 @@ class Reaction(object):
         # dimensionless parameter
         self.adim = data["length"]/data["gamma_eq"]/data["velocity"]
 
-        self.theta = data["theta"]
         self.reaction = data["reaction"]
 
-        self.time_step = data["time_step"]
+        self.time_step = data_time["step"]
 
     # ------------------------------------------------------------------------------#
 
-    def step(self, uw_0):
+    def step(self, solute, precipitate, temperature):
+        # create the solution
+        uw_0 = np.vstack((solute, precipitate))
+
         # solution at the end of the procedure
         uw_n = np.zeros(uw_0.shape)
 
         # compute the reaction rate with the solute and precipitate
-        reaction_0 = self.reaction_fct(uw_0)
+        reaction_0 = self.reaction_fct(uw_0, temperature)
 
         # update the solute and precipitate
         uw_1 = uw_0 + 0.5 * self.time_step * reaction_0
@@ -48,15 +51,15 @@ class Reaction(object):
 
         # correct the step
         uw_corrected = uw_0[:, neg_1] + 0.5 * time_step_corrected * reaction_0[:, neg_1]
-        uw_eta = uw_0[:, neg_1] + time_step_corrected * self.reaction_fct(uw_corrected)
+        uw_eta = uw_0[:, neg_1] + time_step_corrected * self.reaction_fct(uw_corrected, temperature[neg_1])
 
         # then finish with the last part of the time_step
         delta = self.time_step - time_step_corrected
-        uw_corrected = uw_eta + 0.5 * delta * self.reaction_fct(uw_eta)
-        uw_n[:, neg_1] = uw_eta + delta * self.reaction_fct(uw_corrected)
+        uw_corrected = uw_eta + 0.5 * delta * self.reaction_fct(uw_eta, temperature[neg_1])
+        uw_n[:, neg_1] = uw_eta + delta * self.reaction_fct(uw_corrected, temperature[neg_1])
 
         # consider now the positive and progress with the scheme
-        uw_n[:, pos_1] = uw_0[:, pos_1] + self.time_step * self.reaction_fct(uw_1[:, pos_1])
+        uw_n[:, pos_1] = uw_0[:, pos_1] + self.time_step * self.reaction_fct(uw_1[:, pos_1], temperature[pos_1])
 
         # if during the second step something goes wrong we still need to work on it
         neg_n = pos_1[np.where(uw_n[1, pos_1] < 0)[0]]
@@ -72,7 +75,7 @@ class Reaction(object):
                     time_step_mid = 0.5*(time_step_a + time_step_b)
                     # re-do the step
                     uw_bisec = uw_0[:, i, np.newaxis] + 0.5 * time_step_mid * reaction_0[:, i, np.newaxis]
-                    uw_bisec = uw_0[:, i, np.newaxis] + time_step_mid * self.reaction_fct(uw_bisec)
+                    uw_bisec = uw_0[:, i, np.newaxis] + time_step_mid * self.reaction_fct(uw_bisec, temperature[i])
 
                     if uw_bisec[1, :] > 0:
                         time_step_a = time_step_mid
@@ -87,21 +90,21 @@ class Reaction(object):
                 uw_bisec[1, :] = 0
                 # then finish with the last part of the time_step
                 delta = self.time_step - time_step_mid
-                uw_corrected = uw_bisec + 0.5 * delta * self.reaction_fct(uw_bisec)
-                uw_n[:, i, np.newaxis] = uw_bisec + delta * self.reaction_fct(uw_corrected)
+                uw_corrected = uw_bisec + 0.5 * delta * self.reaction_fct(uw_bisec, temperature[i])
+                uw_n[:, i, np.newaxis] = uw_bisec + delta * self.reaction_fct(uw_corrected, temperature[i])
 
-        return uw_n
+        return uw_n[0, :], uw_n[1, :]
 
     # ------------------------------------------------------------------------------#
 
-    def reaction_fct(self, uw):
+    def reaction_fct(self, uw, temperature):
         # set the reaction rate, we suppose given as a function with
         # (solute, precipitate) as argument
 
         sign = np.ones(uw.shape)
         sign[1, :] = -1
 
-        val = self.reaction(uw[0, :], uw[1, :], self.theta)
+        val = self.reaction(uw[0, :], uw[1, :], temperature)
         return self.adim * np.einsum("ij,j->ij", sign, val)
 
     # ------------------------------------------------------------------------------#
