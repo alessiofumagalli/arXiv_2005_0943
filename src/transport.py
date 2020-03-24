@@ -10,6 +10,7 @@ class Transport(object):
         self.model = model
         self.gb = gb
         self.data = None
+        self.data_time = None
         self.assembler = None
 
         # discretization operator name
@@ -41,83 +42,22 @@ class Transport(object):
         self.scalar = self.model + "_scalar"
         self.flux = "darcy_flux"
 
+        # set the discretizaton
+        self.set_discr()
+
     # ------------------------------------------------------------------------------#
 
-    def set_data(self, data, bc_flag):
-        self.data = data
-
-        for g, d in self.gb:
-            param_diff = {}
-            param_adv = {}
-            param_mass = {}
-            param_source = {}
-
-            unity = np.ones(g.num_cells)
-            zeros = np.zeros(g.num_cells)
-            empty = np.empty(0)
-
-            d["Aavatsmark_transmissibilities"] = True
-            d["tol"] = data["tol"]
-
-            # assign permeability
-            if g.dim < self.gb.dim_max():
-                lxx = data["lf_t"] * unity
-                aperture = data["aperture"] * unity
-            else:
-                lxx = data["l"] * unity
-                aperture = unity
-
-            param_diff["second_order_tensor"] = pp.SecondOrderTensor(3, kxx=lxx)
-
-            param_diff["aperture"] = aperture
-            param_adv["aperture"] = aperture
-            param_mass["aperture"] = aperture
-
-            param_mass["mass_weight"] = data["mass_weight"] * unity
-
-            param_source["source"] = g.cell_volumes * 0
-
-            # Boundaries
-            b_faces = g.tags["domain_boundary_faces"].nonzero()[0]
-            if b_faces.size:
-                labels_diff, labels_adv, bc_val = bc_flag(g, data, data["tol"])
-                param_diff["bc"] = pp.BoundaryCondition(g, b_faces, labels_diff)
-                param_adv["bc"] = pp.BoundaryCondition(g, b_faces, labels_adv)
-            else:
-                bc_val = np.zeros(g.num_faces)
-                param_diff["bc"] = pp.BoundaryCondition(g, empty, empty)
-                param_adv["bc"] = pp.BoundaryCondition(g, empty, empty)
-
-            param_diff["bc_values"] = bc_val
-            param_adv["bc_values"] = bc_val
-
-            d[pp.PARAMETERS].update(pp.Parameters(g,
-                [self.diff_name, self.adv_name, self.mass_name, self.source_name],
-                [param_diff, param_adv, param_mass, param_source]))
-
-        for e, d in self.gb.edges():
-            g_l = self.gb.nodes_of_edge(e)[0]
-
-            mg = d["mortar_grid"]
-            check_P = mg.slave_to_mortar_avg()
-
-            aperture = self.gb.node_props(g_l, pp.PARAMETERS)[self.diff_name]["aperture"]
-            gamma = check_P * aperture
-            ln = data["lf_n"] * np.ones(mg.num_cells) / gamma
-            param_diff = {"normal_diffusivity": ln}
-
-            d[pp.PARAMETERS].update(pp.Parameters(e, [self.diff_name, self.adv_name],
-                                                     [param_diff, {}]))
-
-        # set now the discretization
+    def set_discr(self):
 
         # set the discretization for the grids
-        for g, d in self.gb:
+        for _, d in self.gb:
             d[pp.PRIMARY_VARIABLES].update({self.variable: {"cells": 1}})
             d[pp.DISCRETIZATION].update({self.variable: {self.diff_name: self.diff,
                                                          self.adv_name: self.adv,
                                                          self.mass_name: self.mass,
                                                          self.source_name: self.source}})
+            d[pp.DISCRETIZATION_MATRICES].update({self.diff_name: {}, self.adv_name: {},
+                                                  self.mass_name: {}, self.source_name: {}})
 
         # define the interface terms to couple the grids
         for e, d in self.gb.edges():
@@ -138,6 +78,8 @@ class Transport(object):
                     e: (self.mortar_adv, self.coupling_adv),
                 }
             })
+            d[pp.DISCRETIZATION_MATRICES].update({self.diff_name: {}, self.adv_name: {},
+                                                  self.mass_name: {}, self.source_name: {}})
 
         # assembler
         variables = [self.variable, self.mortar_diff, self.mortar_adv]
@@ -145,8 +87,9 @@ class Transport(object):
 
     # ------------------------------------------------------------------------------#
 
-    def update_data(self):
-        # NOTE the self.data stores the original values
+    def set_data(self, data, data_time):
+        self.data = data
+        self.data_time = data_time
 
         for g, d in self.gb:
             param_diff = {}
@@ -155,41 +98,97 @@ class Transport(object):
             param_source = {}
 
             unity = np.ones(g.num_cells)
+            zeros = np.zeros(g.num_cells)
+            empty = np.empty(0)
 
-            poro_star = d[pp.STATE]["porosity_star"]
+            d["Aavatsmark_transmissibilities"] = True
+            d["tol"] = data["tol"]
 
             # assign permeability
             if g.dim < self.gb.dim_max():
-                lxx = poro_star * self.data["lf_t"]
-                aperture = self.data["aperture"] * unity ## to do the aperture
+                aperture_star = d[pp.STATE]["aperture_star"]
+
+                l = data["l_t"] * aperture_star
+                diff = pp.SecondOrderTensor(l)
             else:
-                lxx = poro_star * self.data["l"]
-                aperture = unity
+                poro_star = d[pp.STATE]["porosity_star"]
 
-            param_diff["second_order_tensor"] = pp.SecondOrderTensor(3, kxx=lxx)
+                l = poro_star * data["l"]
+                diff = pp.SecondOrderTensor(l)
 
-            param_diff["aperture"] = aperture
-            param_adv["aperture"] = aperture
-            param_mass["aperture"] = aperture
+            param_diff["second_order_tensor"] = diff
 
-            #param_source["source"] = g.cell_volumes * 0
+            param_mass["mass_weight"] = data["mass_weight"] / data_time["step"]
+            param_source["source"] = zeros
 
+            # Boundaries
+            b_faces = g.tags["domain_boundary_faces"].nonzero()[0]
+            if b_faces.size:
+                labels_diff, labels_adv, bc_val = data["bc"](g, data, data["tol"])
+                param_diff["bc"] = pp.BoundaryCondition(g, b_faces, labels_diff)
+                param_adv["bc"] = pp.BoundaryCondition(g, b_faces, labels_adv)
+            else:
+                bc_val = np.zeros(g.num_faces)
+                param_diff["bc"] = pp.BoundaryCondition(g, empty, empty)
+                param_adv["bc"] = pp.BoundaryCondition(g, empty, empty)
+
+            param_diff["bc_values"] = bc_val
+            param_adv["bc_values"] = bc_val
+
+            models = [self.diff_name, self.adv_name, self.mass_name, self.source_name]
+            params = [param_diff, param_adv, param_mass, param_source]
+            for model, param in zip(models, params):
+                pp.initialize_data(g, d, model, param)
+
+        for e, d in self.gb.edges():
+            mg = d["mortar_grid"]
+            g_l = self.gb.nodes_of_edge(e)[0]
+
+            check_P = mg.slave_to_mortar_avg()
+            aperture_star = self.gb.node_props(g_l, pp.STATE)["aperture_star"]
+
+            l = 2 * check_P * (self.data["l_n"] / aperture_star)
+
+            models = [self.diff_name, self.adv_name]
+            params = [{"normal_diffusivity": l}, {}]
+            for model, param in zip(models, params):
+                pp.initialize_data(mg, d, model, param)
+
+    # ------------------------------------------------------------------------------#
+
+    def update_data(self):
+        # NOTE the self.data stores the original values
+
+        for g, d in self.gb:
+            param_diff = {}
+
+            # assign permeability
+            if g.dim < self.gb.dim_max():
+                aperture_star = d[pp.STATE]["aperture_star"]
+
+                l = aperture_star * self.data["l_t"]
+                diff = pp.SecondOrderTensor(l)
+            else:
+                poro_star = d[pp.STATE]["porosity_star"]
+
+                l = poro_star * self.data["l"]
+                try:
+                    diff = pp.SecondOrderTensor(l)
+                except:
+                    import pdb; pdb.set_trace()
+                    print(diff)
+
+            param_diff["second_order_tensor"] = diff
             d[pp.PARAMETERS][self.diff_name].update(param_diff)
-            d[pp.PARAMETERS][self.adv_name].update(param_adv)
-            d[pp.PARAMETERS][self.mass_name].update(param_mass)
-            d[pp.PARAMETERS][self.source_name].update(param_source)
 
         for e, d in self.gb.edges():
             g_l = self.gb.nodes_of_edge(e)[0]
 
-            mg = d["mortar_grid"]
-            check_P = mg.slave_to_mortar_avg()
+            check_P = d["mortar_grid"].slave_to_mortar_avg()
+            aperture_star = self.gb.node_props(g_l, pp.STATE)["aperture_star"]
 
-            aperture = self.gb.node_props(g_l, pp.PARAMETERS)[self.diff_name]["aperture"]
-            poro_star = self.gb.node_props(g_l, pp.STATE)["porosity_star"]
-
-            ln = check_P * (poro_star * self.data["lf_n"] / aperture)
-            d[pp.PARAMETERS][self.diff_name].update({"normal_diffusivity": ln})
+            l = 2 * check_P * (self.data["l_n"] / aperture_star)
+            d[pp.PARAMETERS][self.diff_name].update({"normal_diffusivity": l})
 
     # ------------------------------------------------------------------------------#
 
@@ -218,6 +217,7 @@ class Transport(object):
             d[pp.DISCRETIZATION_MATRICES].update({self.diff_name: {}, self.adv_name: {},
                                                   self.mass_name: {}, self.source_name: {}})
 
+        self.assembler.discretize()
         block_A, block_b = self.assembler.assemble_matrix_rhs(add_matrices=False)
 
         # unpack the matrices just computed
