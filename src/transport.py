@@ -106,17 +106,11 @@ class Transport(object):
 
             # assign permeability
             if g.dim < self.gb.dim_max():
-                aperture_star = d[pp.STATE]["aperture_star"]
-
-                l = data["l_t"] * aperture_star
-                diff = pp.SecondOrderTensor(l)
+                diff = data["d_t"] * d[pp.STATE]["aperture"]
             else:
-                poro_star = d[pp.STATE]["porosity_star"]
+                diff = data["d"] * d[pp.STATE]["porosity"]
 
-                l = poro_star * data["l"]
-                diff = pp.SecondOrderTensor(l)
-
-            param_diff["second_order_tensor"] = diff
+            param_diff["second_order_tensor"] = pp.SecondOrderTensor(diff)
 
             param_mass["mass_weight"] = data["mass_weight"] / data_time["step"]
             param_source["source"] = zeros
@@ -145,12 +139,12 @@ class Transport(object):
             g_l = self.gb.nodes_of_edge(e)[0]
 
             check_P = mg.slave_to_mortar_avg()
-            aperture_star = self.gb.node_props(g_l, pp.STATE)["aperture_star"]
+            aperture = self.gb.node_props(g_l, pp.STATE)["aperture"]
 
-            l = 2 * check_P * (self.data["l_n"] / aperture_star)
+            diff = 2 * check_P * (self.data["d_n"] / aperture)
 
             models = [self.diff_name, self.adv_name]
-            params = [{"normal_diffusivity": l}, {}]
+            params = [{"normal_diffusivity": diff}, {}]
             for model, param in zip(models, params):
                 pp.initialize_data(mg, d, model, param)
 
@@ -164,21 +158,11 @@ class Transport(object):
 
             # assign permeability
             if g.dim < self.gb.dim_max():
-                aperture_star = d[pp.STATE]["aperture_star"]
-
-                l = aperture_star * self.data["l_t"]
-                diff = pp.SecondOrderTensor(l)
+                diff = self.data["d_t"] * d[pp.STATE]["aperture_star"]
             else:
-                poro_star = d[pp.STATE]["porosity_star"]
+                diff = self.data["d"] * d[pp.STATE]["porosity_star"]
 
-                l = poro_star * self.data["l"]
-                try:
-                    diff = pp.SecondOrderTensor(l)
-                except:
-                    import pdb; pdb.set_trace()
-                    print(diff)
-
-            param_diff["second_order_tensor"] = diff
+            param_diff["second_order_tensor"] = pp.SecondOrderTensor(diff)
             d[pp.PARAMETERS][self.diff_name].update(param_diff)
 
         for e, d in self.gb.edges():
@@ -187,8 +171,8 @@ class Transport(object):
             check_P = d["mortar_grid"].slave_to_mortar_avg()
             aperture_star = self.gb.node_props(g_l, pp.STATE)["aperture_star"]
 
-            l = 2 * check_P * (self.data["l_n"] / aperture_star)
-            d[pp.PARAMETERS][self.diff_name].update({"normal_diffusivity": l})
+            diff = 2 * check_P * (self.data["d_n"] / aperture_star)
+            d[pp.PARAMETERS][self.diff_name].update({"normal_diffusivity": diff})
 
     # ------------------------------------------------------------------------------#
 
