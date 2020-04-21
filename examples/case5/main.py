@@ -6,35 +6,14 @@ import sys; sys.path.insert(0, "../../src/")
 from scheme import Scheme
 
 from data import get_param
-
-# ------------------------------------------------------------------------------#
-
-def create_gb(file_name, mesh_size):
-    domain = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1}
-    network = pp.fracture_importer.network_2d_from_csv(file_name, domain=domain)
-
-    # assign the flag for the low permeable fractures
-    mesh_kwargs = {"mesh_size_frac": mesh_size, "mesh_size_min": mesh_size / 20}
-    gb = network.mesh(mesh_kwargs)
-
-    for _, d in gb:
-        d[pp.PRIMARY_VARIABLES] = {}
-        d[pp.DISCRETIZATION] = {}
-        d[pp.DISCRETIZATION_MATRICES] = {}
-
-    for _, d in gb.edges():
-        d[pp.PRIMARY_VARIABLES] = {}
-        d[pp.COUPLING_DISCRETIZATION] = {}
-        d[pp.DISCRETIZATION_MATRICES] = {}
-
-    return gb
+from data_test_b import create_gb, get_param
 
 # ------------------------------------------------------------------------------#
 
 def main():
 
-    mesh_size = np.power(2., -5)
-    gb = create_gb("network_split.csv", mesh_size)
+    mesh_size = np.power(2., -4) #-5
+    gb = create_gb(mesh_size)
 
     param = get_param()
 
@@ -51,34 +30,12 @@ def main():
 
     for i in np.arange(param["time"]["num_steps"]):
 
-        print("processing", i, "step")
+        print("processing", i, "step at time", i*param["time"]["step"])
 
-        # -- DO THE FLOW PART -- #
-
-        # update the data from the previous time step
-        scheme.update_flow()
-        # solve the flow part
-        scheme.solve_flow()
-
-        # -- DO THE TRANSPORT PART -- #
-
-        # update the data from the previous time step
-        scheme.update_solute_precipitate()
-        # solve the advection and diffusion part
-        scheme.solve_solute_precipitate_advection_diffusion()
-        ## solve the reaction part
-        scheme.solve_solute_precipitate_rection()
-
-        ## -- DO THE POROSITY PART -- #
-
-        ## solve the porosity part
-        scheme.solve_porosity()
-
-        ## solve the aperture part
-        scheme.solve_aperture()
+        # do one step of the splitting scheme
+        scheme.one_step_splitting_scheme()
 
         # post process
-        scheme.extract()
         time = param["time"]["step"]*(i+1)
         save.write_vtk(vars_to_save, time_step=time)
 

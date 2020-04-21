@@ -5,7 +5,7 @@ import porepy as pp
 
 def create_gb(mesh_size):
     domain = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1}
-    file_name = "network_split.csv"
+    file_name = "network_split_with_constraints.csv"
     network = pp.fracture_importer.network_2d_from_csv(file_name, domain=domain)
 
     # assign the flag for the low permeable fractures
@@ -182,7 +182,7 @@ def bc_solute(g, data, tol):
     labels_adv[out_flow] = "dir"
 
     bc_val = np.zeros(g.num_faces)
-    bc_val[b_faces[in_flow]] = 2
+    bc_val[b_faces[in_flow]] = 0
     bc_val[b_faces[out_flow]] = 0
 
     return labels_diff, labels_adv, bc_val
@@ -202,11 +202,10 @@ def initial_solute(g, data, tol):
 # ------------------------------------------------------------------------------#
 
 def initial_precipitate(g, data, tol):
-#    if is_flag(g):
-#        precipitate = 0.5*np.ones(g.num_cells)
-#    else:
-#        precipitate = np.zeros(g.num_cells)
-    precipitate = 0.3 * np.ones(g.num_cells)
+    if g.dim == 1: #is_flag(g):
+        precipitate = 10*np.ones(g.num_cells)
+    else:
+        precipitate = np.zeros(g.num_cells)
     return precipitate
 
 # ------------------------------------------------------------------------------#
