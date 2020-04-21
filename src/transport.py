@@ -15,23 +15,23 @@ class Transport(object):
 
         # discretization operator name
         self.diff_name = self.model + "_diff"
-        self.diff = pp.Tpfa(self.diff_name)
+        self.diff = pp.Tpfa
 
         self.adv_name = self.model + "_adv"
-        self.adv = pp.Upwind(self.adv_name)
+        self.adv = pp.Upwind
 
         self.mass_name = self.model + "_mass"
-        self.mass = pp.MassMatrix(self.mass_name)
+        self.mass = pp.MassMatrix
 
         # coupling operator
         self.coupling_diff_name = self.diff_name + "_coupling"
-        self.coupling_diff = pp.RobinCoupling(self.diff_name, self.diff)
+        self.coupling_diff = pp.RobinCoupling
 
         self.coupling_adv_name = self.adv_name + "_coupling"
-        self.coupling_adv = pp.UpwindCoupling(self.adv_name)
+        self.coupling_adv = pp.UpwindCoupling
 
         self.source_name = self.model + "_source"
-        self.source = pp.ScalarSource(self.source_name)
+        self.source = pp.ScalarSource
 
         # master variable name
         self.variable = self.model + "_variable"
@@ -52,10 +52,16 @@ class Transport(object):
         # set the discretization for the grids
         for _, d in self.gb:
             d[pp.PRIMARY_VARIABLES].update({self.variable: {"cells": 1}})
-            d[pp.DISCRETIZATION].update({self.variable: {self.diff_name: self.diff,
-                                                         self.adv_name: self.adv,
-                                                         self.mass_name: self.mass,
-                                                         self.source_name: self.source}})
+
+            diff = self.diff(self.diff_name)
+            adv = self.adv(self.adv_name)
+            mass = self.mass(self.mass_name)
+            source = self.source(self.source_name)
+            d[pp.DISCRETIZATION].update({self.variable: {self.diff_name: diff,
+                                                         self.adv_name: adv,
+                                                         self.mass_name: mass,
+                                                         self.source_name: source}})
+
             d[pp.DISCRETIZATION_MATRICES].update({self.diff_name: {}, self.adv_name: {},
                                                   self.mass_name: {}, self.source_name: {}})
 
@@ -64,20 +70,25 @@ class Transport(object):
             g_slave, g_master = self.gb.nodes_of_edge(e)
             d[pp.PRIMARY_VARIABLES].update({self.mortar_diff: {"cells": 1},
                                             self.mortar_adv: {"cells": 1}})
+
+            coupling_diff = self.coupling_diff(self.diff_name, self.diff(self.diff_name))
             d[pp.COUPLING_DISCRETIZATION].update({
                 self.coupling_diff_name: {
                     g_slave: (self.variable, self.diff_name),
                     g_master: (self.variable, self.diff_name),
-                    e: (self.mortar_diff, self.coupling_diff),
+                    e: (self.mortar_diff, coupling_diff),
                 }
             })
+
+            coupling_adv = self.coupling_adv(self.adv_name)
             d[pp.COUPLING_DISCRETIZATION].update({
                 self.coupling_adv_name: {
                     g_slave: (self.variable, self.adv_name),
                     g_master: (self.variable, self.adv_name),
-                    e: (self.mortar_adv, self.coupling_adv),
+                    e: (self.mortar_adv, coupling_adv),
                 }
             })
+
             d[pp.DISCRETIZATION_MATRICES].update({self.diff_name: {}, self.adv_name: {},
                                                   self.mass_name: {}, self.source_name: {}})
 
