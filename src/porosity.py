@@ -44,7 +44,6 @@ class Porosity(object):
     # ------------------------------------------------------------------------------#
 
     def set_data(self, data):
-
         self.data = data
         self.eta = data["eta"]
 
@@ -52,11 +51,6 @@ class Porosity(object):
 
     def shape(self):
         return self.gb.num_cells() + 2*self.gb.num_mortar_cells()
-
-    # ------------------------------------------------------------------------------#
-
-    def extrapolate(self, porosity, porosity_old):
-        return 2*porosity - porosity_old
 
     # ------------------------------------------------------------------------------#
 

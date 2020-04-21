@@ -43,7 +43,6 @@ class Aperture(object):
     # ------------------------------------------------------------------------------#
 
     def set_data(self, data):
-
         self.data = data
         self.eta = data["eta"]
 
@@ -51,11 +50,6 @@ class Aperture(object):
 
     def shape(self):
         return self.gb.num_cells() + 2*self.gb.num_mortar_cells()
-
-    # ------------------------------------------------------------------------------#
-
-    def extrapolate(self, aperture, aperture_old):
-        return 2*aperture - aperture_old
 
     # ------------------------------------------------------------------------------#
 
