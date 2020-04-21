@@ -15,15 +15,15 @@ class Flow(object):
 
         # discretization operator name
         self.discr_name = self.model + "_flux"
-        self.discr = pp.RT0(self.model)
+        self.discr = pp.RT0
 
         # coupling operator
         self.coupling_name = self.discr_name + "_coupling"
-        self.coupling = pp.RobinCoupling(self.model, self.discr)
+        self.coupling = pp.RobinCoupling
 
         # source
         self.source_name = self.model + "_source"
-        self.source = pp.DualScalarSource(self.model)
+        self.source = pp.DualScalarSource
 
         # master variable name
         self.variable = self.model + "_variable"
@@ -44,21 +44,28 @@ class Flow(object):
         # set the discretization for the grids
         for _, d in self.gb:
             d[pp.PRIMARY_VARIABLES].update({self.variable: {"cells": 1, "faces": 1}})
-            d[pp.DISCRETIZATION].update({self.variable: {self.discr_name: self.discr,
-                                                         self.source_name: self.source}})
+
+            discr = self.discr(self.model)
+            source = self.source(self.model)
+            d[pp.DISCRETIZATION].update({self.variable: {self.discr_name: discr,
+                                                         self.source_name: source}})
+
             d[pp.DISCRETIZATION_MATRICES].update({self.model: {}})
 
         # define the interface terms to couple the grids
         for e, d in self.gb.edges():
             g_slave, g_master = self.gb.nodes_of_edge(e)
             d[pp.PRIMARY_VARIABLES].update({self.mortar: {"cells": 1}})
+
+            coupling = self.coupling(self.model, self.discr(self.model))
             d[pp.COUPLING_DISCRETIZATION].update({
                 self.coupling_name: {
                     g_slave: (self.variable, self.discr_name),
                     g_master: (self.variable, self.discr_name),
-                    e: (self.mortar, self.coupling),
+                    e: (self.mortar, coupling),
                 }
             })
+
             d[pp.DISCRETIZATION_MATRICES].update({self.model: {}})
 
         # assembler
@@ -85,14 +92,14 @@ class Flow(object):
 
             # assign permeability
             if g.dim < self.gb.dim_max():
-                aperture_star = d[pp.STATE]["aperture_star"]
+                aperture = d[pp.STATE]["aperture"]
 
-                k = np.power(aperture_star, alpha+1) * self.data["k_t"]
+                k = np.power(aperture, alpha+1) * self.data["k_t"]
                 perm = pp.SecondOrderTensor(kxx=k, kyy=1, kzz=1)
             else:
-                poro_star = d[pp.STATE]["porosity_star"]
+                porosity = d[pp.STATE]["porosity"]
 
-                k = np.power(poro_star, alpha) * self.data["k"]
+                k = np.power(porosity, alpha) * self.data["k"]
                 perm = pp.SecondOrderTensor(kxx=k, kyy=k, kzz=1)
 
             # no source term is assumed by the user
@@ -115,9 +122,9 @@ class Flow(object):
             g_l = self.gb.nodes_of_edge(e)[0]
 
             check_P = mg.slave_to_mortar_avg()
-            aperture_star = self.gb.node_props(g_l, pp.STATE)["aperture_star"]
+            aperture = self.gb.node_props(g_l, pp.STATE)["aperture"]
 
-            k = 2 * check_P * (np.power(aperture_star, alpha-1) * self.data["k_n"])
+            k = 2 * check_P * (np.power(aperture, alpha-1) * self.data["k_n"])
             pp.initialize_data(mg, d, self.model, {"normal_diffusivity": k})
 
     # ------------------------------------------------------------------------------#
@@ -198,12 +205,14 @@ class Flow(object):
 
     def extract(self, x):
         self.assembler.distribute_variable(x)
+
+        discr = self.discr(self.model)
         for g, d in self.gb:
             var = d[pp.STATE][self.variable]
-            d[pp.STATE][self.pressure] = self.discr.extract_pressure(g, var, d)
-            d[pp.STATE][self.flux] = self.discr.extract_flux(g, var, d)
+            d[pp.STATE][self.pressure] = discr.extract_pressure(g, var, d)
+            d[pp.STATE][self.flux] = discr.extract_flux(g, var, d)
 
         # export the P0 flux reconstruction
-        pp.project_flux(self.gb, self.discr, self.flux, self.P0_flux, self.mortar)
+        pp.project_flux(self.gb, discr, self.flux, self.P0_flux, self.mortar)
 
     # ------------------------------------------------------------------------------#
