@@ -1,4 +1,28 @@
 import numpy as np
+import porepy as pp
+
+# ------------------------------------------------------------------------------#
+
+def create_gb(mesh_size):
+    domain = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1}
+    file_name = "network_with_constraints.csv"
+    network = pp.fracture_importer.network_2d_from_csv(file_name, domain=domain)
+
+    # assign the flag for the low permeable fractures
+    mesh_kwargs = {"mesh_size_frac": mesh_size, "mesh_size_min": mesh_size / 20}
+    gb = network.mesh(mesh_kwargs, constraints=[1, 2, 3, 4])
+
+    for _, d in gb:
+        d[pp.PRIMARY_VARIABLES] = {}
+        d[pp.DISCRETIZATION] = {}
+        d[pp.DISCRETIZATION_MATRICES] = {}
+
+    for _, d in gb.edges():
+        d[pp.PRIMARY_VARIABLES] = {}
+        d[pp.COUPLING_DISCRETIZATION] = {}
+        d[pp.DISCRETIZATION_MATRICES] = {}
+
+    return gb
 
 # ------------------------------------------------------------------------------#
 
@@ -35,7 +59,7 @@ def get_param():
         "flow": {
             "tol": tol,
             "k": 1,
-            "k_t": 1e6, "k_n": 1e6,
+            "k_t": 1e8, "k_n": 1e8,
 
             "bc": bc_flow,
         },
@@ -57,7 +81,7 @@ def get_param():
         "solute_advection_diffusion": {
             "tol": tol,
             "d": 1e-1,
-            "d_t": 1e2, "d_n": 1e2,
+            "d_t": 1e4, "d_n": 1e4,
             "mass_weight": 1.0,
 
             "bc": bc_solute,
@@ -74,6 +98,7 @@ def get_param():
             "theta": 0,
             "reaction": reaction_fct,
             "tol_reaction": 1e-12,
+            "tol_consider_zero": 1e-25,
             "max_iter": 1e2,
         },
 
@@ -157,7 +182,7 @@ def bc_solute(g, data, tol):
     labels_adv[out_flow] = "dir"
 
     bc_val = np.zeros(g.num_faces)
-    bc_val[b_faces[in_flow]] = 1.1
+    bc_val[b_faces[in_flow]] = 0
     bc_val[b_faces[out_flow]] = 0
 
     return labels_diff, labels_adv, bc_val
@@ -176,7 +201,8 @@ def initial_solute(g, data, tol):
 # ------------------------------------------------------------------------------#
 
 def initial_precipitate(g, data, tol):
-    precipitate = 0.3 * np.ones(g.num_cells)
+    precipitate = 0. * np.ones(g.num_cells)
+    precipitate[is_constraint(g.cell_centers)] = 1
     return precipitate
 
 # ------------------------------------------------------------------------------#
@@ -198,5 +224,12 @@ def initial_aperture(g, data, tol):
         return np.zeros(g.num_cells)
     else:
         return 1e-2*np.ones(g.num_cells)
+
+# ------------------------------------------------------------------------------#
+
+def is_constraint(cell_centers):
+    x_constraint = np.logical_and(cell_centers[0, :] > 0.4, cell_centers[0, :] < 0.6)
+    y_constraint = np.logical_and(cell_centers[1, :] > 0.4, cell_centers[1, :] < 0.6)
+    return np.logical_and(x_constraint, y_constraint)
 
 # ------------------------------------------------------------------------------#
