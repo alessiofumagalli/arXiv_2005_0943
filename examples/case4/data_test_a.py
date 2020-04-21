@@ -30,8 +30,8 @@ def get_param():
     # data problem
 
     tol = 1e-6
-    end_time = 5
-    num_steps = int(end_time * 4)
+    end_time = 3
+    num_steps = int(end_time * 20)
     time_step = end_time / float(num_steps)
 
     return {
@@ -59,7 +59,7 @@ def get_param():
         "flow": {
             "tol": tol,
             "k": 1,
-            "k_t": 1e8, "k_n": 1e8,
+            "k_t": 1e2, "k_n": 1e2,
 
             "bc": bc_flow,
         },
@@ -67,9 +67,9 @@ def get_param():
         # temperature
         "temperature": {
             "tol": tol,
-            "l_w": 10,
+            "l_w": 1,
             "l_s": 1e-1,
-            "rc_w": 10.0, # rho_w \cdot c_w
+            "rc_w": 1.0, # rho_w \cdot c_w
             "rc_s": 1.0,
             "mass_weight": 1.0,
 
@@ -81,7 +81,7 @@ def get_param():
         "solute_advection_diffusion": {
             "tol": tol,
             "d": 1e-1,
-            "d_t": 1e4, "d_n": 1e4,
+            "d_t": 1e-1, "d_n": 1e-1,
             "mass_weight": 1.0,
 
             "bc": bc_solute,

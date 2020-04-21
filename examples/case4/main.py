@@ -11,7 +11,7 @@ from data_test_b import create_gb, get_param
 
 def main():
 
-    mesh_size = np.power(2., -4)
+    mesh_size = np.power(2., -6)
     gb = create_gb(mesh_size)
 
     param = get_param()
