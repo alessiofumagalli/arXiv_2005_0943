@@ -87,19 +87,22 @@ class Flow(object):
 
             alpha = self.data.get("alpha", 2)
 
+            d["deviation_from_plane_tol"] = 1e-4
             d["is_tangential"] = True
             d["tol"] = data["tol"]
 
             # assign permeability
             if g.dim < self.gb.dim_max():
                 aperture = d[pp.STATE]["aperture"]
+                aperture_initial = d[pp.STATE]["aperture_initial"]
 
-                k = np.power(aperture, alpha+1) * self.data["k_t"]
+                k = np.power(aperture/aperture_initial, alpha+1) * self.data["k_t"]
                 perm = pp.SecondOrderTensor(kxx=k, kyy=1, kzz=1)
             else:
                 porosity = d[pp.STATE]["porosity"]
+                porosity_initial = d[pp.STATE]["porosity_initial"]
 
-                k = np.power(porosity, alpha) * self.data["k"]
+                k = np.power(porosity/porosity_initial, alpha) * self.data["k"]
                 perm = pp.SecondOrderTensor(kxx=k, kyy=k, kzz=1)
 
             # no source term is assumed by the user
@@ -123,8 +126,9 @@ class Flow(object):
 
             check_P = mg.slave_to_mortar_avg()
             aperture = self.gb.node_props(g_l, pp.STATE)["aperture"]
+            aperture_initial = self.gb.node_props(g_l, pp.STATE)["aperture_initial"]
 
-            k = 2 * check_P * (np.power(aperture, alpha-1) * self.data["k_n"])
+            k = 2 * check_P * (np.power(aperture/aperture_initial, alpha-1) * self.data["k_n"])
             pp.initialize_data(mg, d, self.model, {"normal_diffusivity": k})
 
     # ------------------------------------------------------------------------------#
@@ -142,9 +146,10 @@ class Flow(object):
             if g.dim < self.gb.dim_max():
                 aperture = d[pp.STATE]["aperture"]
                 aperture_star = d[pp.STATE]["aperture_star"]
+                aperture_initial = d[pp.STATE]["aperture_initial"]
 
                 source = (aperture_star - aperture) / self.data_time["step"]
-                k = np.power(aperture_star, alpha+1) * self.data["k_t"]
+                k = np.power(aperture_star/aperture_initial, alpha+1) * self.data["k_t"]
 
                 # aperture and permeability check
                 if np.any(aperture < 0) or np.any(aperture_star < 0) or np.any(k < 0):
@@ -155,16 +160,17 @@ class Flow(object):
 
                 perm = pp.SecondOrderTensor(kxx=k, kyy=1, kzz=1)
             else:
-                poro = d[pp.STATE]["porosity"]
-                poro_star = d[pp.STATE]["porosity_star"]
+                porosity = d[pp.STATE]["porosity"]
+                porosity_star = d[pp.STATE]["porosity_star"]
+                porosity_initial = d[pp.STATE]["porosity_initial"]
 
-                source = (poro_star - poro) / self.data_time["step"]
-                k = np.power(poro_star, alpha) * self.data["k"]
+                source = (porosity_star - porosity) / self.data_time["step"]
+                k = np.power(porosity_star/porosity_initial, alpha) * self.data["k"]
 
                 # porosity and permeability check
-                if np.any(poro < 0) or np.any(poro_star < 0) or np.any(k < 0):
-                    raise ValueError(str(np.any(poro < 0)) + " " +
-                                     str(np.any(poro_star < 0)) + " " +
+                if np.any(porosity < 0) or np.any(porosity_star < 0) or np.any(k < 0):
+                    raise ValueError(str(np.any(porosity < 0)) + " " +
+                                     str(np.any(porosity_star < 0)) + " " +
                                      str(np.any(k < 0)))
 
                 perm = pp.SecondOrderTensor(kxx=k, kyy=k, kzz=1)
@@ -178,8 +184,9 @@ class Flow(object):
 
             check_P = d["mortar_grid"].slave_to_mortar_avg()
             aperture_star = self.gb.node_props(g_l, pp.STATE)["aperture_star"]
+            aperture_initial = self.gb.node_props(g_l, pp.STATE)["aperture_initial"]
 
-            k = 2 * check_P * (np.power(aperture_star, alpha-1) * self.data["k_n"])
+            k = 2 * check_P * (np.power(aperture_star/aperture_initial, alpha-1) * self.data["k_n"])
             d[pp.PARAMETERS][self.model].update({"normal_diffusivity": k})
 
     # ------------------------------------------------------------------------------#
