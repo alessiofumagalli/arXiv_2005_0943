@@ -155,6 +155,10 @@ class Scheme(object):
         # set the old variables
         self.set_old_variables()
 
+        # save the initial porosity and aperture
+        self.discr_porosity.extract(self.porosity, "porosity_initial")
+        self.discr_aperture.extract(self.aperture, "aperture_initial")
+
         # extract the initialized variables, useful for setting the data
         self.extract()
 
