@@ -5,15 +5,13 @@ import porepy as pp
 import sys; sys.path.insert(0, "../../src/")
 from scheme import Scheme
 
-from data import get_param
-from data_test_b import create_gb, get_param
+from import_grid import import_gb
+from data_test_a import get_param
 
 # ------------------------------------------------------------------------------#
 
 def main():
-
-    mesh_size = np.power(2., -4) #-5
-    gb = create_gb(mesh_size)
+    gb = import_gb("cut", 2)
 
     param = get_param()
 

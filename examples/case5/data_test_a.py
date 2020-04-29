@@ -3,35 +3,12 @@ import porepy as pp
 
 # ------------------------------------------------------------------------------#
 
-def create_gb(mesh_size):
-    domain = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1}
-    file_name = "network_split.csv"
-    network = pp.fracture_importer.network_2d_from_csv(file_name, domain=domain)
-
-    # assign the flag for the low permeable fractures
-    mesh_kwargs = {"mesh_size_frac": mesh_size, "mesh_size_min": mesh_size / 20}
-    gb = network.mesh(mesh_kwargs)
-
-    for _, d in gb:
-        d[pp.PRIMARY_VARIABLES] = {}
-        d[pp.DISCRETIZATION] = {}
-        d[pp.DISCRETIZATION_MATRICES] = {}
-
-    for _, d in gb.edges():
-        d[pp.PRIMARY_VARIABLES] = {}
-        d[pp.COUPLING_DISCRETIZATION] = {}
-        d[pp.DISCRETIZATION_MATRICES] = {}
-
-    return gb
-
-# ------------------------------------------------------------------------------#
-
 def get_param():
     # data problem
 
     tol = 1e-6
-    end_time = 5
-    num_steps = int(end_time * 4)
+    end_time = 2.5
+    num_steps = int(end_time * 20)
     time_step = end_time / float(num_steps)
 
     return {
@@ -51,7 +28,7 @@ def get_param():
 
         # aperture
         "aperture": {
-            "eta": 2,
+            "eta": 4,
             "initial": initial_aperture
         },
 
@@ -59,7 +36,7 @@ def get_param():
         "flow": {
             "tol": tol,
             "k": 1,
-            "k_t": 1e8, "k_n": 1e8,
+            "k_t": 1e2, "k_n": 1e2,
 
             "bc": bc_flow,
         },
@@ -67,9 +44,9 @@ def get_param():
         # temperature
         "temperature": {
             "tol": tol,
-            "l_w": 10.,
+            "l_w": 1.,
             "l_s": 1e-1,
-            "rc_w": 10, # rho_w \cdot c_w
+            "rc_w": 1.0, # rho_w \cdot c_w
             "rc_s": 1.0,
             "mass_weight": 1.0,
 
@@ -81,7 +58,7 @@ def get_param():
         "solute_advection_diffusion": {
             "tol": tol,
             "d": 1e-1,
-            "d_t": 1e4, "d_n": 1e4,
+            "d_t": 1e-1, "d_n": 1e-1,
             "mass_weight": 1.0,
 
             "bc": bc_solute,

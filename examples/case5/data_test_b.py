@@ -3,35 +3,12 @@ import porepy as pp
 
 # ------------------------------------------------------------------------------#
 
-def create_gb(mesh_size):
-    domain = {"xmin": 0, "xmax": 1, "ymin": 0, "ymax": 1}
-    file_name = "network_split_with_constraints.csv"
-    network = pp.fracture_importer.network_2d_from_csv(file_name, domain=domain)
-
-    # assign the flag for the low permeable fractures
-    mesh_kwargs = {"mesh_size_frac": mesh_size, "mesh_size_min": mesh_size / 20}
-    gb = network.mesh(mesh_kwargs)
-
-    for _, d in gb:
-        d[pp.PRIMARY_VARIABLES] = {}
-        d[pp.DISCRETIZATION] = {}
-        d[pp.DISCRETIZATION_MATRICES] = {}
-
-    for _, d in gb.edges():
-        d[pp.PRIMARY_VARIABLES] = {}
-        d[pp.COUPLING_DISCRETIZATION] = {}
-        d[pp.DISCRETIZATION_MATRICES] = {}
-
-    return gb
-
-# ------------------------------------------------------------------------------#
-
 def get_param():
     # data problem
 
     tol = 1e-6
     end_time = 5
-    num_steps = int(end_time * 4)
+    num_steps = int(end_time * 20)
     time_step = end_time / float(num_steps)
 
     return {
@@ -51,7 +28,7 @@ def get_param():
 
         # aperture
         "aperture": {
-            "eta": 2,
+            "eta": 4,
             "initial": initial_aperture
         },
 
@@ -59,7 +36,7 @@ def get_param():
         "flow": {
             "tol": tol,
             "k": 1,
-            "k_t": 1e8, "k_n": 1e8,
+            "k_t": 1e2, "k_n": 1e2,
 
             "bc": bc_flow,
         },
@@ -67,10 +44,10 @@ def get_param():
         # temperature
         "temperature": {
             "tol": tol,
-            "l_w": 10.,
+            "l_w": 1,
             "l_s": 1e-1,
-            "rc_w": 10, # rho_w \cdot c_w
-            "rc_s": 1.0,
+            "rc_w": 1, # rho_w \cdot c_w
+            "rc_s": 1,
             "mass_weight": 1.0,
 
             "bc": bc_temperature,
@@ -81,7 +58,7 @@ def get_param():
         "solute_advection_diffusion": {
             "tol": tol,
             "d": 1e-1,
-            "d_t": 1e4, "d_n": 1e4,
+            "d_t": 1e-1, "d_n": 1e-1,
             "mass_weight": 1.0,
 
             "bc": bc_solute,
@@ -98,7 +75,7 @@ def get_param():
             "theta": 0,
             "reaction": reaction_fct,
             "tol_reaction": 1e-12,
-            "tol_consider_zero": 1e-30,
+            "tol_consider_zero": 1e-25,
             "max_iter": 1e2,
         },
 
@@ -226,7 +203,7 @@ def initial_aperture(g, data, tol):
         # the temporal scheme considered keeps this variable null
         aperture = np.zeros(g.num_cells)
     else:
-        aperture = 1e-2*np.ones(g.num_cells)
+        aperture = 1e-4*np.ones(g.num_cells)
 #        if is_flag(g):
 #            aperture = 1e-3*np.ones(g.num_cells)
 #        else:
